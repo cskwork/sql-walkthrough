@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>sql-walkthrough: explain SQL logic with code, real rows and a counter-example</title>
+<meta name="description" content="An agent skill that explains batch and SQL logic to non-experts with numbered source lines, the real rows they read, per-line arithmetic, a results table, and an executed counter-example." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23141414'/%3E%3Crect y='24' width='32' height='4' fill='%23d4140f'/%3E%3Ctext x='16' y='19' font-family='Arial' font-weight='700' font-size='13' fill='%23fff' text-anchor='middle'%3E154%3C/text%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sofia+Sans+Condensed:wght@500;700;800;900&family=Sofia+Sans:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#ffffff;
+    --ink:#141414;
+    --ink-2:#3d3d3d;       /* 80% screen of the black ink */
+    --ink-3:#6b6b6b;       /* 60% screen, large/secondary only */
+    --screen:#f1f1f1;      /* 6% screen of the black ink */
+    --red:#d4140f;         /* the second ink */
+    --red-screen:#fbe7e6;  /* 10% screen of the red ink */
+    --rule-heavy:3px solid var(--ink);
+    --rule:1px solid var(--ink);
+    --rule-hair:1px solid #c9c9c9;
+    --cond:'Sofia Sans Condensed','Arial Narrow',sans-serif;
+    --sans:'Sofia Sans',system-ui,sans-serif;
+    --mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;
+    --max:1200px;
+    --gut:clamp(16px,3.2vw,40px);
+  }
+  *{box-sizing:border-box}
+  html{scrollbar-color:var(--ink) var(--screen);-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:17px;line-height:1.55;
+    font-variant-numeric:tabular-nums lining-nums;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--red);color:#fff}
+  a{color:inherit;text-decoration-thickness:1px;text-underline-offset:.22em}
+  a:hover{color:var(--red)}
+  :focus-visible{outline:2px solid var(--red);outline-offset:3px}
+  code,pre,kbd{font-family:var(--mono);font-size:.86em}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gut)}
+  .red{color:var(--red)}
+  .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+  /* ── table header bar (top of a timetable page) ───────────────── */
+  .masthead{border-bottom:var(--rule-heavy)}
+  .masthead .wrap{display:flex;align-items:stretch;gap:0;min-height:56px}
+  .tno{
+    background:var(--ink);color:var(--paper);font-family:var(--cond);font-weight:900;
+    font-size:28px;letter-spacing:-.01em;display:flex;align-items:center;padding:0 14px;
+    margin-left:calc(var(--gut) * -1);padding-left:var(--gut);
+  }
+  .route{display:flex;flex-direction:column;justify-content:center;padding:6px 16px;flex:1;min-width:0}
+  .route b{font-family:var(--cond);font-weight:800;font-size:22px;line-height:1.05}
+  .route span{font-size:13px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .masthead nav{display:flex;align-items:center;gap:18px;font-family:var(--cond);font-weight:700;font-size:17px}
+  .masthead nav a{text-decoration:none;display:inline-flex;align-items:center;gap:6px;padding:8px 0}
+  .masthead nav a:hover{text-decoration:underline}
+  .masthead svg{width:18px;height:18px;fill:currentColor}
+
+  /* ── first viewport ───────────────────────────────────────────── */
+  .hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:0;border-bottom:var(--rule-heavy)}
+  .pitch{padding:clamp(28px,4vw,56px) clamp(20px,3vw,40px) clamp(28px,4vw,48px) 0;border-right:var(--rule)}
+  h1{
+    font-family:var(--cond);font-weight:900;font-size:clamp(2.7rem,5.4vw,4.6rem);
+    line-height:.94;letter-spacing:-.02em;margin:0 0 22px;text-wrap:balance;
+  }
+  .lede{margin:0 0 28px;max-width:44ch;color:var(--ink-2);font-size:18px}
+  .lede strong{color:var(--ink)}
+
+  .install{border:var(--rule-heavy);background:var(--paper)}
+  .install-head{display:flex;justify-content:space-between;align-items:center;border-bottom:var(--rule);padding:6px 6px 6px 12px;gap:8px}
+  .install-head span{font-family:var(--cond);font-weight:800;font-size:16px}
+  .copy{
+    font:700 15px/1 var(--cond);letter-spacing:.02em;color:var(--paper);background:var(--ink);
+    border:0;padding:9px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+    transition:background-color .18s ease-out;
+  }
+  .copy svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2}
+  .copy:hover{background:var(--red)}
+  .copy[data-state="done"]{background:var(--red)}
+  .install pre{margin:0;padding:14px 12px;white-space:pre-wrap;overflow-wrap:break-word;font-size:14.5px;line-height:1.6}
+  .install pre .p{color:var(--ink-3);user-select:none}
+  .alt{margin:12px 0 0;font-size:14.5px;color:var(--ink-2)}
+
+  /* the timetable */
+  .board{padding:clamp(24px,3.4vw,44px) 0 clamp(20px,3vw,36px) clamp(20px,3vw,40px);min-width:0}
+  .board-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:var(--rule-heavy);padding-bottom:6px;margin:0}
+  .board-title h2{font-family:var(--cond);font-weight:800;font-size:clamp(20px,2vw,24px);margin:0;line-height:1.1}
+  .board-title small{font-size:13px;color:var(--ink-2);text-align:right}
+  table.tt{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  .tt th,.tt td{padding:7px 8px;vertical-align:baseline}
+  .tt thead th{font-family:var(--cond);font-weight:700;font-size:14px;line-height:1.15;text-align:right;border-bottom:var(--rule);vertical-align:bottom}
+  .tt thead th:first-child{text-align:left}
+  .tt thead .run{display:block;font-size:12px;font-weight:500;color:var(--ink-2)}
+  .tt thead .in{display:block;font-size:19px;font-weight:800}
+  .tt th[scope=row]{text-align:left;font-weight:400;font-size:14.5px}
+  .tt th[scope=row] .src{display:block;font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+  .tt td{text-align:right;font-family:var(--cond);font-weight:700;font-size:19px;white-space:nowrap}
+  .tt tbody tr+tr th,.tt tbody tr+tr td{border-top:1px dotted #9a9a9a}
+  .tt .c3{background:var(--red-screen);color:var(--red)}
+  .tt thead .c3{color:var(--red)}
+  .tt thead .c3 .run{color:var(--red)}
+  .tt td.pass{font-weight:500}
+  .tt tfoot th,.tt tfoot td{border-top:var(--rule-heavy);padding-top:10px;padding-bottom:4px}
+  .tt tfoot th{font-family:var(--cond);font-weight:800;font-size:16px;text-align:left;vertical-align:bottom}
+  .tt tfoot th .src{display:block;font:400 11.5px/1.3 var(--mono);color:var(--ink-3)}
+  .tt tfoot td{font-family:var(--cond);font-weight:900;font-size:clamp(3rem,6.2vw,5.6rem);line-height:.9;letter-spacing:-.03em;vertical-align:bottom}
+  .tt tfoot td sup{font-size:.32em;letter-spacing:0;vertical-align:top;position:relative;top:.2em;margin-left:2px}
+  .tt tfoot .c3{position:relative}
+  .stamp{
+    position:absolute;top:-14px;right:6px;transform:rotate(-6deg);
+    border:2px solid var(--red);color:var(--red);background:var(--paper);
+    font:800 11px/1 var(--cond);letter-spacing:.08em;text-transform:uppercase;padding:4px 6px;white-space:nowrap;
+  }
+  .legend{margin:14px 0 0;padding:0;list-style:none;font-size:13.5px;color:var(--ink-2);display:grid;gap:4px}
+  .legend li{display:grid;grid-template-columns:1.6em 1fr;gap:4px}
+  .legend b{font-family:var(--cond);color:var(--ink);font-size:15px}
+  .legend .red b{color:var(--red)}
+  .legend code{font-size:.92em;color:var(--red);overflow-wrap:anywhere}
+
+  /* ── sections ─────────────────────────────────────────────────── */
+  section{padding:clamp(48px,7vw,88px) 0 0}
+  .bar{display:flex;align-items:stretch;border-top:var(--rule-heavy);border-bottom:var(--rule);margin-bottom:28px}
+  .bar .n{background:var(--ink);color:var(--paper);font:900 18px/1 var(--cond);display:flex;align-items:center;padding:0 12px;min-width:68px}
+  .bar h2{font-family:var(--cond);font-weight:800;font-size:clamp(26px,3.2vw,38px);line-height:1.05;margin:0;padding:10px 14px;letter-spacing:-.01em}
+  .intro{max-width:66ch;margin:0 0 28px;color:var(--ink-2)}
+
+  /* source listing with km column = line numbers */
+  .listing{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:0;border-bottom:var(--rule)}
+  .code{border-right:var(--rule);min-width:0}
+  .code-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:0 14px 10px 0;border-bottom:var(--rule-hair)}
+  .code-head span{font-size:13.5px;color:var(--ink-2)}
+  .toggle{
+    font:700 15px/1 var(--cond);background:var(--paper);color:var(--red);border:2px solid var(--red);
+    padding:8px 12px;cursor:pointer;transition:background-color .18s ease-out,color .18s ease-out;
+  }
+  .toggle:hover,.toggle[aria-pressed="true"]{background:var(--red);color:var(--paper)}
+  pre.src{margin:0;padding:12px 0;overflow-x:auto;font-size:13.5px;line-height:1.75}
+  pre.src .ln{display:block;padding-right:14px;white-space:pre}
+  pre.src .k{display:inline-block;width:4.2em;color:var(--ink-3);user-select:none}
+  pre.src .ln.mark{background:var(--screen)}
+  pre.src .ln.mark .k{color:var(--ink);font-weight:700}
+  pre.src .hyp{display:grid;grid-template-rows:0fr;transition:grid-template-rows .45s cubic-bezier(.16,1,.3,1)}
+  pre.src .hyp>span{overflow:hidden;color:var(--red);background:var(--red-screen)}
+  pre.src .hyp>span .k{color:var(--red)}
+  .is-hyp pre.src .hyp{grid-template-rows:1fr}
+  .readout{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:12px 14px 14px 0;border-top:var(--rule-hair)}
+  .readout span{font-size:14px;color:var(--ink-2)}
+  .readout output{font:900 44px/1 var(--cond);letter-spacing:-.02em;transition:color .2s ease-out}
+  .is-hyp .readout output{color:var(--red)}
+
+  ol.notes{list-style:none;margin:0;padding:0}
+  ol.notes li{padding:12px 0 14px 18px;border-bottom:var(--rule-hair)}
+  ol.notes li:last-child{border-bottom:0}
+  ol.notes .h{display:flex;gap:10px;align-items:baseline;font-family:var(--cond);font-weight:800;font-size:19px;line-height:1.2;margin-bottom:4px}
+  ol.notes .h i{font-style:normal;font-size:22px}
+  ol.notes p{margin:0;font-size:15.5px;color:var(--ink-2)}
+  ol.notes .math{font-family:var(--cond);font-weight:700;font-size:18px;color:var(--ink)}
+
+  /* the five-part bundle as a timetable legend */
+  .bundle{margin:0;padding:0;list-style:none;border-top:var(--rule)}
+  .bundle li{display:grid;grid-template-columns:72px minmax(0,1.1fr) minmax(0,1.4fr);gap:0 20px;padding:16px 0;border-bottom:var(--rule)}
+  .bundle .no{font:900 44px/.9 var(--cond)}
+  .bundle h3{font-family:var(--cond);font-weight:800;font-size:22px;line-height:1.15;margin:4px 0 0}
+  .bundle p{margin:4px 0 0;color:var(--ink-2);font-size:16px;max-width:60ch}
+  .bundle li.last .no,.bundle li.last h3{color:var(--red)}
+
+  /* script reference */
+  .usage{border:var(--rule-heavy);padding:12px 14px;margin:0 0 24px;overflow-x:auto;font-size:14px;line-height:1.65;white-space:pre}
+  table.flags{width:100%;border-collapse:collapse}
+  .flags th,.flags td{text-align:left;vertical-align:baseline;padding:12px 16px 12px 0;border-bottom:var(--rule)}
+  .flags thead th{font-family:var(--cond);font-weight:700;font-size:14px;border-bottom:var(--rule-heavy);padding-bottom:6px}
+  .flags td:first-child{white-space:nowrap;font-family:var(--mono);font-size:15px;font-weight:700;width:1%}
+  .flags td{font-size:16px;color:var(--ink-2)}
+  .scan{margin:28px 0 0}
+  .scan figcaption{font-size:14px;color:var(--ink-2);margin:0 0 8px}
+  .scan pre{margin:0;background:var(--screen);padding:12px 14px;overflow-x:auto;font-size:13.5px;line-height:1.7}
+  .scan .verdict{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:10px 0 0;font-size:15.5px;color:var(--ink-2)}
+  .scan .verdict b{font:900 26px/1 var(--cond);color:var(--red)}
+
+  /* closing timetable footer */
+  .close{margin-top:clamp(56px,8vw,96px);background:var(--ink);color:var(--paper)}
+  .close .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(24px,4vw,56px);padding-top:clamp(36px,5vw,56px);padding-bottom:clamp(36px,5vw,56px)}
+  .close h2{font-family:var(--cond);font-weight:900;font-size:clamp(2rem,4vw,3.2rem);line-height:.98;margin:0 0 14px;letter-spacing:-.015em}
+  .close p{margin:0 0 10px;color:#d6d6d6;max-width:46ch}
+  .close .install{border-color:var(--paper);background:var(--ink)}
+  .close .install-head{border-color:#5a5a5a}
+  .close .install pre .p{color:#9a9a9a}
+  .close .copy{background:var(--paper);color:var(--ink)}
+  .close .copy:hover,.close .copy[data-state="done"]{background:var(--red);color:var(--paper)}
+  .close a:hover{color:#ff6b66}
+  .close ::selection{background:var(--red);color:#fff}
+  .colophon{border-top:1px solid #5a5a5a}
+  .colophon .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-top:16px;padding-bottom:20px;grid-template-columns:none;font-size:14px;color:#bdbdbd}
+  .colophon a{color:var(--paper)}
+
+  /* ── responsive ───────────────────────────────────────────────── */
+  @media (max-width:900px){
+    .hero{display:flex;flex-direction:column}
+    .pitch{display:contents}
+    .pitch h1{order:1;margin-top:clamp(24px,6vw,40px)}
+    .pitch .lede{order:2;margin-bottom:8px}
+    .board{order:3;padding:16px 0 28px;border-bottom:var(--rule)}
+    .pitch .install{order:4;margin-top:28px}
+    .pitch .alt{order:5;margin-bottom:28px}
+    .listing{grid-template-columns:1fr}
+    .code{border-right:0;border-bottom:var(--rule)}
+    ol.notes li{padding-left:0}
+    .close .wrap{grid-template-columns:1fr}
+  }
+  @media (max-width:640px){
+    body{font-size:16px}
+    .route span{display:none}
+    .masthead nav{gap:12px;font-size:15px}
+    .masthead nav .gh-label{display:none}
+    .tno{font-size:22px}
+    .route b{font-size:19px}
+    .tt th,.tt td{padding:6px 4px}
+    .tt thead .in{font-size:15px}
+    .tt td{font-size:16px}
+    .tt th[scope=row]{font-size:13px}
+    .tt tfoot td{font-size:2.5rem}
+    .stamp{font-size:11px;top:-14px;right:0;padding:3px 4px;letter-spacing:.04em}
+    .bundle li{grid-template-columns:48px minmax(0,1fr);row-gap:2px}
+    .bundle .no{font-size:34px;grid-row:span 2}
+    .bundle p{grid-column:2}
+    .flags td:first-child{white-space:normal}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none !important}
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="tno" aria-hidden="true">154</div>
+    <div class="route">
+      <b>sql-walkthrough</b>
+      <span>Agent skill · Claude Code, Codex, opencode</span>
+    </div>
+    <nav aria-label="Project">
+      <a href="#install">Install</a>
+      <a href="https://github.com/cskwork/sql-walkthrough" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span class="gh-label">GitHub</span><span class="vh"> repository</span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="hero">
+      <div class="pitch">
+        <h1>Prove the condition that isn’t&nbsp;there.</h1>
+        <p class="lede">
+          An agent skill for the question <strong>“why is this value 154, is it safe to run again, does it overwrite?”</strong>
+          It answers with the deployed SQL, the real rows it reads, the arithmetic per line, and an executed counter-example. One bundle, from the first reply.
+        </p>
+
+        <div class="install" id="install">
+          <div class="install-head">
+            <span>Install for Claude Code, Codex, opencode</span>
+            <button class="copy" type="button" data-copy="npx skills add cskwork/sql-walkthrough -g -a claude-code codex opencode -s '*' -y">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12"/><path d="M5 15V3h12"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+          <pre><span class="p">$ </span>npx skills add cskwork/sql-walkthrough -g -a claude-code codex opencode -s '*' -y</pre>
+        </div>
+        <p class="alt">Or clone and symlink <code>skills/sql-walkthrough</code> into your agent’s skills directory. MIT.</p>
+      </div>
+
+      <div class="board" aria-labelledby="board-h">
+        <div class="board-title">
+          <h2 id="board-h">Same block, three runs</h2>
+          <small>Entity <code>a1b2c3d4</code> · anonymised example</small>
+        </div>
+        <table class="tt">
+          <caption class="vh">The study-time block run with input 2026-08-06, input 2026-08-07, and input 2026-08-06 plus one hypothetical date cut.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Rows in <code>time_log</code></th>
+              <th scope="col"><span class="run">Run 1</span><span class="in">08-06</span></th>
+              <th scope="col"><span class="run">Run 2</span><span class="in">08-07</span></th>
+              <th scope="col" class="c3"><span class="run">Run 3 ‡</span><span class="in">08-06</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">08-06 · 3,000 s<span class="src">line 1740</span></th>
+              <td>3,000</td><td>3,000</td><td class="c3">3,000</td>
+            </tr>
+            <tr>
+              <th scope="row">08-07 · 3,083 s<span class="src">line 1740</span></th>
+              <td>3,083</td><td>3,083</td><td class="c3 pass" aria-label="excluded">|</td>
+            </tr>
+            <tr>
+              <th scope="row">08-07 · 3,140 s<span class="src">line 1740</span></th>
+              <td>3,140</td><td>3,140</td><td class="c3 pass" aria-label="excluded">|</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">Minutes<span class="src">line 1739<br>SUM ÷ 60</span></th>
+              <td>154</td>
+              <td>154</td>
+              <td class="c3"><span class="stamp">If it existed</span>50<sup>‡</sup></td>
+            </tr>
+          </tfoot>
+        </table>
+        <ul class="legend">
+          <li><b>=</b><span>Different input, same value: the SUM has no date cut.</span></li>
+          <li><b>|</b><span>Row passes without being counted.</span></li>
+          <li class="red"><b>‡</b><span>Production SQL plus one hypothetical line, <code>AND log.BEGIN_DT &lt; '2026-08-07'</code>. Not in production. Executed to show what a date cut would have done.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <section id="walkthrough" aria-labelledby="s1">
+    <div class="wrap">
+      <div class="bar"><span class="n">154a</span><h2 id="s1">The source, with real line numbers</h2></div>
+      <p class="intro">Every claim is tied to a line of the deployed ref. Line numbers move between releases, so the ref is always stated.</p>
+
+      <div class="listing" id="listing">
+        <div class="code">
+          <div class="code-head">
+            <span><code>StatsMapper.xml</code> · <code>upsertDailyStats</code> · CTE <code>time_total</code> · ref <code>origin/prod</code></span>
+            <button class="toggle" type="button" aria-pressed="false" aria-controls="listing">Add the date cut</button>
+          </div>
+<pre class="src"><span class="ln"><span class="k">1738</span>time_total AS (/* study time */</span><span class="ln mark"><span class="k">1739</span>    SELECT log.ENTITY_ID, ROUND(SUM(TIMESTAMPDIFF(SECOND, BEGIN_DT, IFNULL(END_DT, ...))) / 60) AS MINUTES</span><span class="ln"><span class="k">1740</span>    FROM time_log log</span><span class="ln mark"><span class="k">1741</span>        JOIN access_list sel ON sel.entity_id = log.ENTITY_ID</span><span class="ln mark"><span class="k">1742</span>    WHERE sel.day = #{inputDay} AND BEGIN_DT &lt; END_DT</span><span class="hyp" aria-hidden="true"><span class="ln"><span class="k">  ‡ </span>      AND log.BEGIN_DT &lt; '2026-08-07'   -- hypothetical, not in production</span></span><span class="ln"><span class="k">1743</span>    GROUP BY log.ENTITY_ID)</span></pre>
+          <div class="readout">
+            <span>MINUTES for <code>a1b2c3d4</code>, input 2026-08-06</span>
+            <output id="minutes" aria-live="polite">154</output>
+          </div>
+        </div>
+
+        <ol class="notes">
+          <li>
+            <div class="h"><i>①</i><span>Line 1739, <code>SUM</code>: where the value is made</span></div>
+            <p><span class="math">3,000 + 3,083 + 3,140 = 9,223 s ÷ 60 → 154</span><br><code>IFNULL</code>, <code>ROUND</code> and <code>TIMESTAMPDIFF</code> inside the SUM filter nothing.</p>
+          </li>
+          <li>
+            <div class="h"><i>②</i><span>Line 1742, <code>WHERE</code>: where the range is decided</span></div>
+            <p><code>sel.day</code> picks which entities are computed. <code>BEGIN_DT &lt; END_DT</code> compares two columns of the same row. No condition compares a date with a value.</p>
+          </li>
+          <li>
+            <div class="h"><i>③</i><span>Line 1741, <code>JOIN</code>: where the input travels</span></div>
+            <p>The input reaches <code>access_list</code> only. Every row in <code>time_log</code> for that entity enters the sum.</p>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section id="method" aria-labelledby="s2">
+    <div class="wrap">
+      <div class="bar"><span class="n">154b</span><h2 id="s2">One bundle, always in this order</h2></div>
+      <p class="intro">Prose cannot carry a negative like “there is no date cut”. The skill answers with these five parts instead.</p>
+      <ol class="bundle">
+        <li><span class="no">1</span><h3>Source with real line numbers</h3><p>Extracted from the deployed ref, line breaks and comments intact.</p></li>
+        <li><span class="no">2</span><h3>The real rows those lines read</h3><p>One sample entity with five rows or fewer. Ids shown as an 8-character prefix.</p></li>
+        <li><span class="no">3</span><h3>①②③ arithmetic per line</h3><p>Where the value is made, where the range is decided, where the input does and does not travel.</p></li>
+        <li><span class="no">4</span><h3>Results where only the input changes</h3><p>The block runs as-is on a read-only environment. Same text, different input.</p></li>
+        <li class="last"><span class="no">5</span><h3>An executed counter-example</h3><p>Exactly one hypothetical line added to the production SQL and run. Its value sits next to the real one.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="script" aria-labelledby="s3">
+    <div class="wrap">
+      <div class="bar"><span class="n">154c</span><h2 id="s3"><code style="font-size:.8em">extract_block.py</code></h2></div>
+      <p class="intro">Pulls a MyBatis statement, or one CTE inside it, from any git ref with its original line numbers. Use <code>worktree</code> as the ref to read the file on disk.</p>
+<pre class="usage">python3 scripts/extract_block.py &lt;repo&gt; &lt;git-ref&gt; &lt;mapper.xml&gt; &lt;statement-id&gt; [cte-name] [--scan] [--sql]</pre>
+      <table class="flags">
+        <thead><tr><th scope="col">Flag</th><th scope="col">Output</th></tr></thead>
+        <tbody>
+          <tr><td>(none)</td><td>The whole statement, or only the named CTE, each line prefixed with its number in that ref.</td></tr>
+          <tr><td>--scan</td><td>Only the lines that touch dates or ranges: <code>_DT</code>, <code>startDate</code>, <code>NOW(</code>, <code>CURDATE</code>, <code>INTERVAL</code>, <code>BETWEEN</code>, <code>&lt;=</code>, <code>&gt;=</code>. Classify each as selection, state or range.</td></tr>
+          <tr><td>--sql</td><td>Runnable SQL without line numbers. XML comments and CDATA removed, <code>#{param}</code> kept for you to fill in.</td></tr>
+        </tbody>
+      </table>
+      <figure class="scan">
+        <figcaption><code>--scan</code> on the example block</figcaption>
+<pre> 1739  SELECT log.ENTITY_ID, ROUND(SUM(TIMESTAMPDIFF(SECOND, BEGIN_DT, IFNULL(END_DT, ...))) / 60) AS MINUTES
+ 1742  WHERE sel.day = #{inputDay} AND BEGIN_DT &lt; END_DT</pre>
+        <div class="verdict"><b>0</b><span>range conditions. 1739 is inside the SUM, 1742 is a selection plus a same-row check. That zero is the evidence.</span></div>
+      </figure>
+    </div>
+  </section>
+
+  <footer class="close" aria-labelledby="s4">
+    <div class="wrap">
+      <div>
+        <h2 id="s4">Put the counter-example next to the real value.</h2>
+        <p>Works with Claude Code, Codex and opencode. Real table names and environment runners belong in a private companion skill; nothing environment-specific lives here.</p>
+        <p><a href="https://github.com/cskwork/sql-walkthrough" rel="noopener">github.com/cskwork/sql-walkthrough</a></p>
+      </div>
+      <div class="install">
+        <div class="install-head">
+          <span>Install</span>
+          <button class="copy" type="button" data-copy="npx skills add cskwork/sql-walkthrough -g -a claude-code codex opencode -s '*' -y">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12"/><path d="M5 15V3h12"/></svg>
+            <span>Copy</span>
+          </button>
+        </div>
+        <pre><span class="p">$ </span>npx skills add cskwork/sql-walkthrough -g -a claude-code codex opencode -s '*' -y</pre>
+      </div>
+    </div>
+    <div class="colophon">
+      <div class="wrap">
+        <span>MIT License · sample data is anonymised and illustrative</span>
+        <a href="https://github.com/cskwork/sql-walkthrough/blob/main/LICENSE" rel="noopener">LICENSE</a>
+      </div>
+    </div>
+  </footer>
+</main>
+
+<script>
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var label = btn.querySelector('span');
+      var text = btn.getAttribute('data-copy');
+      var done = function (ok) {
+        btn.dataset.state = ok ? 'done' : 'fail';
+        label.textContent = ok ? 'Copied' : 'Select and copy';
+        setTimeout(function () { delete btn.dataset.state; label.textContent = 'Copy'; }, 1800);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+      } else { done(false); }
+    });
+  });
+
+  (function () {
+    var listing = document.getElementById('listing');
+    var btn = listing.querySelector('.toggle');
+    var out = document.getElementById('minutes');
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var timer;
+    function count(from, to) {
+      clearInterval(timer);
+      if (reduce) { out.textContent = to; return; }
+      var steps = 14, i = 0;
+      timer = setInterval(function () {
+        i++;
+        var t = 1 - Math.pow(1 - i / steps, 3);
+        out.textContent = Math.round(from + (to - from) * t);
+        if (i >= steps) clearInterval(timer);
+      }, 28);
+    }
+    btn.addEventListener('click', function () {
+      var on = btn.getAttribute('aria-pressed') !== 'true';
+      btn.setAttribute('aria-pressed', String(on));
+      btn.textContent = on ? 'Remove the date cut' : 'Add the date cut';
+      listing.classList.toggle('is-hyp', on);
+      listing.querySelector('.hyp').setAttribute('aria-hidden', String(!on));
+      count(on ? 154 : 50, on ? 50 : 154);
+    });
+  })();
+</script>
+</body>
+</html>
